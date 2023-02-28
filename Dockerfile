@@ -1,4 +1,4 @@
-FROM python:3.10.8-bullseye as build
+FROM python:3.8-bullseye as build
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -27,20 +27,15 @@ COPY pyproject.toml pyproject.toml
 RUN poetry install --only main
 
 
-FROM python:3.10.8-slim-bullseye
+FROM python:3.8-slim-bullseye
 
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-ENV NUMBA_CACHE_DIR=/tmp
 ENV MPLCONFIGDIR=/tmp
 
 
-WORKDIR /app/monitoring
+WORKDIR /app/churn
 COPY --from=build /opt/venv /opt/venv
-COPY monitoring ./monitoring
-COPY LibMD ./LibMD
-    # monitoring writes a file in the execution directory
-RUN chmod 777 /app/monitoring && python -m ipykernel install --name=monitor-poetry && useradd pyphot -u 1001
+COPY churn_library.py churn_library.py
 
-USER pyphot
-ENTRYPOINT ["python", "-c", "from monitoring.RunResultsSummaryClass import main; main()"]
+ENTRYPOINT ["python", "churn_library.py"]
