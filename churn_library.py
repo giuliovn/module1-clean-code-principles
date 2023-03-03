@@ -4,6 +4,7 @@ Author: Giulio
 """
 
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from datetime import datetime
 import logging
 import os
 from pathlib import Path
@@ -20,16 +21,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import plot_roc_curve, classification_report
 
+from configuration import conf
+
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 rcParams.update({"figure.autolayout": True})
 sns.set()
-
-logging.basicConfig(
-    # level=logging.DEBUG,
-    level=logging.INFO,
-    format="%(asctime)s\t[%(levelname)s]\t%(message)s",
-)
-log = logging.getLogger()
 
 
 class ChurnPredict:
@@ -38,16 +34,45 @@ class ChurnPredict:
     """
 
     def __init__(self, data_path, outputs_dir=Path("outputs")):
-        self.df = self.import_data(data_path)
         self.outputs_dir = outputs_dir
-        log.debug("Add Churn column to dataframe")
+        self.log = self.get_logger()
+        self.data_path = data_path
+        self.df = self.import_data()
+        self.x_train = None
+        self.x_test = None
+        self.y_train = None
+        self.y_test = None
+
+    def predict(self):
+        self.log.debug("Add Churn column to dataframe")
         self.df["Churn"] = self.df["Attrition_Flag"].apply(
             lambda val: 0 if val == "Existing Customer" else 1)
         self.perform_eda()
-        x_train, x_test, y_train, y_test = self.perform_feature_engineering()
-        self.train_models(x_train, x_test, y_train, y_test)
+        self.encoder_helper(conf["category_columns"])
+        self.x_train, self.x_test, self.y_train, self.y_test = self.perform_feature_engineering()
+        self.train_models()
 
-    def import_data(self, data_path):
+    def get_logger(
+            self,
+            log_file_name=f"churn_predict_{datetime.now().strftime('%d-%m-%y_%H:%M:%S')}.log",
+            log_level=logging.INFO):
+        logs_dir = self.outputs_dir / "logs"
+        self.make_dir(logs_dir)
+        log_path = logs_dir / log_file_name
+        file_handler = logging.FileHandler(log_path)
+        stream_handler = logging.StreamHandler()
+        log = logging.getLogger()
+        log.setLevel(log_level)
+        formatter = logging.Formatter(
+            "%(asctime)s\t[%(levelname)s]\t%(message)s")
+        file_handler.setFormatter(formatter)
+        stream_handler.setFormatter(formatter)
+        log.addHandler(file_handler)
+        log.addHandler(stream_handler)
+        log.info(f"Log to {log_path}")
+        return log
+
+    def import_data(self):
         """
         returns dataframe for the csv found at pth
 
@@ -56,16 +81,16 @@ class ChurnPredict:
         output:
                 df: pandas dataframe
         """
-        log.info(f"Reading {data_path}")
-        df = pd.read_csv(data_path)
-        log.info(df.columns)
+        self.log.info(f"Reading {self.data_path}")
+        df = pd.read_csv(self.data_path)
+        self.log.info(df.columns)
         return df
 
     def perform_eda(self):
         """
         perform eda on df and save figures to images folder
         """
-        log.info("Perform exploratory analysis")
+        self.log.info("Perform exploratory analysis")
         images_output = self.outputs_dir / "eda"
         self.make_dir(images_output)
 
@@ -74,20 +99,20 @@ class ChurnPredict:
             lambda val: "No Churn" if val == 0 else "Churn").hist(
             bins=2).get_figure()
         churn_fig_path = images_output / "churn_amount.png"
-        log.info(f"Churn amount visualization to {churn_fig_path}")
+        self.log.info(f"Churn amount visualization to {churn_fig_path}")
         churn_fig.savefig(churn_fig_path)
 
         plt.figure(figsize=(20, 10))
         age_fig = self.df["Customer_Age"].hist().get_figure()
         age_fig_path = images_output / "customer_age.png"
-        log.info(f"Age visualization to {age_fig_path}")
+        self.log.info(f"Age visualization to {age_fig_path}")
         age_fig.savefig(age_fig_path)
 
         plt.figure(figsize=(20, 10))
         mar_status_fig = self.df.Marital_Status.value_counts(
             "normalize").plot(kind="bar").get_figure()
         mar_status_fig_path = images_output / "marital_status.png"
-        log.info(f"Marital status visualization to {mar_status_fig_path}")
+        self.log.info(f"Marital status visualization to {mar_status_fig_path}")
         mar_status_fig.savefig(mar_status_fig_path)
 
         plt.figure(figsize=(20, 10))
@@ -96,7 +121,7 @@ class ChurnPredict:
             stat="density",
             kde=True).get_figure()
         trans_distr_fig_path = images_output / "transactions_distribution.png"
-        log.info(
+        self.log.info(
             f"Transactions distribution visualization to {trans_distr_fig_path}")
         trans_distr_fig.savefig(trans_distr_fig_path)
 
@@ -107,7 +132,8 @@ class ChurnPredict:
             cmap="Dark2_r",
             linewidths=2).get_figure()
         heatmap_fig_path = images_output / "heatmap.png"
-        log.info(f"Heatmap correlation visualization to {heatmap_fig_path}")
+        self.log.info(
+            f"Heatmap correlation visualization to {heatmap_fig_path}")
         heatmap_fig.savefig(heatmap_fig_path)
 
     def encoder_helper(self, category_lst):
@@ -118,7 +144,7 @@ class ChurnPredict:
         input:
                 category_lst: list of columns that contain categorical features
         """
-        log.info(
+        self.log.info(
             f"Add column for correlation with churn for each category: {', '.join(category_lst)}")
         for category in category_lst:
             category_groups = self.df.groupby(category).mean()["Churn"]
@@ -136,58 +162,26 @@ class ChurnPredict:
                   y_train: y training data
                   y_test: y testing data
         """
-        category_columns = [
-            "Gender",
-            "Education_Level",
-            "Marital_Status",
-            "Income_Category",
-            "Card_Category"
-        ]
-        self.encoder_helper(category_columns)
-
-        log.debug("Clean dataframe columns")
-        keep_cols = [
-            "Customer_Age",
-            "Dependent_count",
-            "Months_on_book",
-            "Total_Relationship_Count",
-            "Months_Inactive_12_mon",
-            "Contacts_Count_12_mon",
-            "Credit_Limit",
-            "Total_Revolving_Bal",
-            "Avg_Open_To_Buy",
-            "Total_Amt_Chng_Q4_Q1",
-            "Total_Trans_Amt",
-            "Total_Trans_Ct",
-            "Total_Ct_Chng_Q4_Q1",
-            "Avg_Utilization_Ratio",
-            "Gender_Churn",
-            "Education_Level_Churn",
-            "Marital_Status_Churn",
-            "Income_Category_Churn",
-            "Card_Category_Churn"]
+        self.log.debug("Clean dataframe columns")
 
         churn = self.df["Churn"]
-        clean_df = self.df[self.df.columns.intersection(keep_cols)]
+        clean_df = self.df[self.df.columns.intersection(conf["keep_cols"])]
         self.df = clean_df
 
-        log.info("Prepare train and test data")
+        self.log.info("Prepare train and test data")
         x_train, x_test, y_train, y_test = train_test_split(
             self.df, churn, test_size=0.3, random_state=42)
         return x_train, x_test, y_train, y_test
 
-    def train_models(self, x_train, x_test, y_train, y_test):
+    def train_models(self):
         """
         train, store model results: images + scores, and store models
         input:
-                  x_train: X training data
-                  x_test: X testing data
-                  y_train: y training data
-                  y_test: y testing data
+                  None
         output:
                   None
         """
-        log.info("Start training")
+        self.log.info("Start training")
         # grid search
         rfc = RandomForestClassifier(random_state=42)
         # Use a different solver if the default "lbfgs" fails to converge
@@ -203,19 +197,19 @@ class ChurnPredict:
         }
 
         cv_rfc = GridSearchCV(estimator=rfc, param_grid=param_grid, cv=5)
-        cv_rfc.fit(x_train, y_train)
+        cv_rfc.fit(self.x_train, self.y_train)
 
-        lrc.fit(x_train, y_train)
+        lrc.fit(self.x_train, self.y_train)
 
-        y_train_preds_rf = cv_rfc.best_estimator_.predict(x_train)
-        y_test_preds_rf = cv_rfc.best_estimator_.predict(x_test)
+        y_train_preds_rf = cv_rfc.best_estimator_.predict(self.x_train)
+        y_test_preds_rf = cv_rfc.best_estimator_.predict(self.x_test)
 
-        y_train_preds_lr = lrc.predict(x_train)
-        y_test_preds_lr = lrc.predict(x_test)
+        y_train_preds_lr = lrc.predict(self.x_train)
+        y_test_preds_lr = lrc.predict(self.x_test)
 
         models_output = self.outputs_dir / "models"
         self.make_dir(models_output)
-        log.info(f"Save models to {models_output}")
+        self.log.info(f"Save models to {models_output}")
         joblib.dump(cv_rfc.best_estimator_, models_output / "rfc_model.pkl")
         joblib.dump(lrc, models_output / "logistic_model.pkl")
 
@@ -224,19 +218,19 @@ class ChurnPredict:
         self.roc_curves_plot(
             lrc,
             cv_rfc.best_estimator_,
-            x_test,
-            y_test,
+            self.x_test,
+            self.y_test,
             results_output)
         self.classification_report_image(
-            y_train,
-            y_test,
+            self.y_train,
+            self.y_test,
             y_train_preds_rf,
             y_test_preds_rf,
             "Random Forest",
             results_output)
         self.classification_report_image(
-            y_train,
-            y_test,
+            self.y_train,
+            self.y_test,
             y_train_preds_lr,
             y_test_preds_lr,
             "Logistic Regression",
@@ -244,8 +238,7 @@ class ChurnPredict:
         self.feature_importance_plot(
             cv_rfc.best_estimator_, self.df, results_output)
 
-    @staticmethod
-    def roc_curves_plot(lr_model, rfc_model, x_test, y_test, output_pth):
+    def roc_curves_plot(self, lr_model, rfc_model, x_test, y_test, output_pth):
         """
         produces roc curves plot for the two models in output_pth
         input:
@@ -264,11 +257,10 @@ class ChurnPredict:
         plot_roc_curve(rfc_model, x_test, y_test, ax=ax, alpha=0.8)
 
         roc_fig_path = output_pth / "roc_curves.png"
-        log.info(f"ROC plot to {roc_fig_path}")
+        self.log.info(f"ROC plot to {roc_fig_path}")
         plt.savefig(roc_fig_path)
 
-    @staticmethod
-    def classification_report_image(y_train,
+    def classification_report_image(self, y_train,
                                     y_test,
                                     y_train_preds,
                                     y_test_preds,
@@ -279,7 +271,7 @@ class ChurnPredict:
         in output_pth
         input:
                 y_train: training response values
-                y_test:  test response values
+                y_test: test response values
                 y_train_preds: training predictions for a specific model
                 y_test_preds: test predictions for a specific model
                 model_type_str: name of the model type
@@ -288,17 +280,17 @@ class ChurnPredict:
         output:
                  None
         """
-        log.info(f"{model_type_str} results")
-        log.info("Test results")
+        self.log.info(f"{model_type_str} results")
+        self.log.info("Test results")
         test_results = classification_report(y_test, y_test_preds)
-        log.info(test_results)
-        log.info("Train results")
+        self.log.info(test_results)
+        self.log.info("Train results")
         train_results = classification_report(y_train, y_train_preds)
-        log.info(train_results)
+        self.log.info(train_results)
 
         csv_path = output_pth / \
             f"{model_type_str.replace(' ', '_').lower()}_classification_results.csv"
-        log.info(f"Save {model_type_str.lower()} results to {csv_path}")
+        self.log.info(f"Save {model_type_str.lower()} results to {csv_path}")
         with open(csv_path, "w+") as csv:
             csv.write("Test results\n")
             csv.write(test_results)
@@ -316,11 +308,9 @@ class ChurnPredict:
         output:
                 None
         """
-        log.debug(f"Make sure {dir_path} directory  exists")
         dir_path.mkdir(parents=True, exist_ok=True)
 
-    @staticmethod
-    def feature_importance_plot(model, x_data,
+    def feature_importance_plot(self, model, x_data,
                                 output_pth):
         """
         creates and stores the feature importance in output_pth
@@ -333,7 +323,7 @@ class ChurnPredict:
                  None
         """
         # Calculate feature importances
-        log.info("Calculate model feature importances")
+        self.log.info("Calculate model feature importances")
 
         importances = model.feature_importances_
         # Sort feature importances in descending order
@@ -356,7 +346,7 @@ class ChurnPredict:
         plt.xticks(range(x_data.shape[1]), names, rotation=90)
 
         feature_importance_fig_path = output_pth / "feature_importance.png"
-        log.info(
+        self.log.info(
             f"Feature importance visualization to {feature_importance_fig_path}")
         plt.savefig(feature_importance_fig_path)
 
@@ -370,5 +360,4 @@ if __name__ == "__main__":
         help="Output base directory",
         default=Path("outputs"))
     args = parser.parse_args()
-    log.debug(args)
-    ChurnPredict(args.data_path, )
+    ChurnPredict(args.data_path, ).predict()
