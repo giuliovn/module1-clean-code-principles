@@ -30,4 +30,12 @@ python churn_library.py data/bank_data.csv (-o /path/to/outputs)
 `docker run -v /path/to/output:/app/churn/outputs -v $(pwd)/data:/data churn /data/bank_data.csv`
 **WARNING** docker user is root
 
+#### Run tests
+**NB** if running using poetry prepend `poetry run` to any python command
+```shell
+pytest
+```
+Test logs will be written to `./outputs/logs/`
+
+
 
