@@ -1,6 +1,7 @@
 """
 Library for churn prediction
-Author: Giulio
+Author: Giulio Venturi
+Date: March 2023
 """
 
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
@@ -54,7 +55,7 @@ class ChurnPredict:
 
     def get_logger(
             self,
-            log_file_name=f"churn_predict_{datetime.now().strftime('%d-%m-%y_%H:%M:%S')}.log",
+            log_file_name=f"churn_predict_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.log",
             log_level=logging.INFO):
         logs_dir = self.outputs_dir / "logs"
         self.make_dir(logs_dir)

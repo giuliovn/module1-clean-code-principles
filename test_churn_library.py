@@ -1,5 +1,7 @@
 """
-    Module to test churn_library.py
+Module to test churn_library.py
+Author: Giulio Venturi
+Date: March 2023
 """
 from datetime import datetime
 import logging
@@ -11,7 +13,7 @@ from configuration import conf
 
 cpTestClass = ChurnPredict("./data/bank_data.csv")
 cpTestClass.get_logger(
-    f"test_churn_predict_{datetime.now().strftime('%d-%m-%y_%H:%M:%S')}.log")
+    f"test_churn_predict_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.log")
 
 
 def test_import():
